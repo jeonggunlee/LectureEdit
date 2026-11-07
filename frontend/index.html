@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LectureEdit</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%8E%AC%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">🎬 LectureEdit</div>
+  <div class="file-picker">
+    <select id="videoSelect"><option value="">영상 선택…</option></select>
+    <button id="refreshBtn" title="videos 폴더 다시 읽기">↻</button>
+    <label class="btn">업로드<input type="file" id="uploadInput" accept="video/*,.mkv,.avi,.wmv,.ts,.mts" hidden></label>
+    <span id="uploadStatus" class="muted"></span>
+  </div>
+  <div class="info muted" id="videoInfo">videos/ 폴더에 영상을 넣거나 업로드하세요.</div>
+</header>
+
+<main class="layout">
+  <section class="player-col">
+    <div class="video-wrap">
+      <video id="video" preload="metadata" playsinline></video>
+      <div id="subtitleOverlay" class="subtitle-overlay hidden"></div>
+      <div id="videoNotice" class="notice hidden"></div>
+    </div>
+
+    <div class="transport">
+      <button data-seek="-10" title="10초 뒤로 (Ctrl+←)">« 10s</button>
+      <button data-seek="-1" title="1초 뒤로 (Shift+←)">‹ 1s</button>
+      <button data-frame="-1" title="1프레임 뒤로 (←)">◂ 1f</button>
+      <button id="playBtn" class="primary" title="재생/정지 (Space)">▶</button>
+      <button data-frame="1" title="1프레임 앞으로 (→)">1f ▸</button>
+      <button data-seek="1" title="1초 앞으로 (Shift+→)">1s ›</button>
+      <button data-seek="10" title="10초 앞으로 (Ctrl+→)">10s »</button>
+      <span class="time"><span id="curTime">00:00:00.000</span> <span class="muted">/ <span id="durTime">00:00:00.000</span></span></span>
+      <label>속도
+        <select id="speed">
+          <option value="0.5">0.5x</option><option value="1" selected>1x</option>
+          <option value="1.5">1.5x</option><option value="2">2x</option><option value="3">3x</option>
+        </select>
+      </label>
+      <label class="check"><input type="checkbox" id="skipCuts" checked> 편집 결과 미리보기 <span class="muted">(삭제한 클립 건너뛰기)</span></label>
+      <label class="check"><input type="checkbox" id="showSubs" checked> 자막 표시</label>
+    </div>
+
+    <div class="timeline-tools">
+      <div class="toolgroup" id="toolGroup">
+        <button data-tool="select" class="active" title="클립 클릭으로 선택, 자른 선을 끌어 위치 조정 (V)">↖ 선택 <kbd>V</kbd></button>
+        <button data-tool="razor" title="타임라인을 클릭하면 그 위치에서 자르기, 드래그하면 범위를 잘라 선택 (C)">✂ 자르기 <kbd>C</kbd></button>
+      </div>
+      <button id="splitBtn" title="재생 위치에서 자르기 (S)">✂ 현재 위치에서 자르기 <kbd>S</kbd></button>
+      <button id="deleteBtn" class="danger" disabled title="선택한 클립 삭제 (Delete)">🗑 선택 클립 삭제 <kbd>Del</kbd></button>
+      <button id="restoreBtn" disabled title="선택한 클립 복원 (R)">↩ 복원 <kbd>R</kbd></button>
+      <button id="undoBtn" disabled title="되돌리기 (Ctrl+Z)">되돌리기 <kbd>Ctrl+Z</kbd></button>
+      <button id="chapterBtn" title="재생 위치에 챕터 추가 (M)">🔖 챕터 추가 <kbd>M</kbd></button>
+      <span class="spacer"></span>
+      <label>확대 <input type="range" id="zoom" min="1" max="80" value="1" step="1"></label>
+      <span id="zoomLabel" class="muted">1x</span>
+    </div>
+
+    <div class="timeline-scroll" id="timelineScroll">
+      <div class="timeline" id="timeline" data-tool="select">
+        <div class="ruler" id="ruler"></div>
+        <div class="chapters" id="chapLayer"></div>
+        <div class="thumbs" id="thumbs"></div>
+        <div class="clips" id="clipLayer"></div>
+        <div class="cuts" id="cutLayer"></div>
+        <div class="rangesel hidden" id="rangeSel"></div>
+        <div class="hoverline hidden" id="hoverLine"><span></span></div>
+        <div class="playhead" id="playhead"></div>
+      </div>
+    </div>
+    <div class="muted hint" id="hint">
+      ① <b>✂ 자르기</b> 도구로 타임라인 클릭 = 그 지점에서 나누기, 드래그 = 그 범위만 분리 &nbsp;② <b>↖ 선택</b> 도구로 조각 클릭 후 <b>Delete</b> = 삭제(빗금) &nbsp;③ <b>내보내기</b> = 남은 조각만 이어서 저장 &nbsp;· 눈금자 드래그 = 탐색, 자른 선 드래그 = 위치 조정, 더블클릭 = 합치기, 🔖 = 챕터
+    </div>
+  </section>
+
+  <aside class="side-col">
+    <nav class="tabs" id="tabs">
+      <button data-tab="clips" class="active">클립 <span class="badge" id="badgeClips"></span></button>
+      <button data-tab="transcript">대본·자막 <span class="badge" id="badgeTranscript"></span></button>
+      <button data-tab="chapters">챕터 <span class="badge" id="badgeChapters"></span></button>
+      <button data-tab="export">내보내기</button>
+    </nav>
+
+    <!-- ============ 클립 ============ -->
+    <section class="tab active" data-tab="clips">
+      <div class="panel">
+        <h3>클립 목록 <span class="muted small" id="clipSummary"></span></h3>
+        <div id="clipList" class="clip-list"></div>
+        <div class="row">
+          <button id="restoreAll" title="삭제한 클립을 모두 복원">모두 복원</button>
+          <button id="clearCuts" class="danger" title="자른 지점을 모두 없애고 처음 상태로">초기화</button>
+          <span class="spacer"></span>
+          <button id="exportJson" title="편집 상태를 JSON 파일로 저장">프로젝트 저장</button>
+          <label class="btn" title="JSON 프로젝트 불러오기">불러오기<input type="file" id="importJson" accept=".json" hidden></label>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ 대본·자막 ============ -->
+    <section class="tab" data-tab="transcript">
+      <div class="panel" id="trGenPanel">
+        <h3>자동 자막 생성 <span class="muted small" id="trDevice"></span></h3>
+        <div class="row wrap">
+          <label>모델 <select id="trModel"></select></label>
+          <label>언어 <select id="trLang"><option value="ko" selected>한국어</option><option value="en">영어</option><option value="auto">자동 감지</option></select></label>
+        </div>
+        <label class="block">용어 힌트 <span class="muted small">(과목의 전문 용어·고유명사를 쉼표로, 인식률 향상)</span>
+          <input type="text" id="trPrompt" placeholder="예: 라플라스 변환, 푸리에 급수, 고윳값"></label>
+        <div class="row">
+          <button id="trStart" class="primary">자막 생성 (Whisper)</button>
+          <button id="trCancel" class="hidden">취소</button>
+        </div>
+        <div class="progress hidden" id="trProgress"><div class="bar"></div><span class="label"></span></div>
+        <div class="muted small" id="trNote"></div>
+      </div>
+
+      <div class="panel hidden" id="trPanel">
+        <h3>대본 <span class="muted small" id="trSummary"></span></h3>
+        <div class="row">
+          <input type="search" id="trSearch" placeholder="대본 검색…" class="grow">
+          <label class="check small"><input type="checkbox" id="trFollow" checked> 재생 따라가기</label>
+        </div>
+        <div class="row wrap">
+          <button id="trCutBtn" class="danger" disabled title="선택한 문장 구간을 잘라내어 삭제 표시">🗑 선택 문장 삭제</button>
+          <button id="trKeepBtn" disabled title="선택한 문장 구간을 복원">↩ 복원</button>
+          <span class="spacer"></span>
+          <a id="trSrtLink" class="btn" href="#" download>SRT 다운로드</a>
+          <button id="trRedo" class="small" title="다른 모델이나 설정으로 다시 생성">다시 생성</button>
+        </div>
+        <div id="trList" class="tr-list"></div>
+        <div class="muted small">문장 클릭 = 이동, Ctrl/Shift+클릭 = 여러 문장 선택, 문장 더블클릭 = 내용 수정(Enter 저장). 빗금 문장은 삭제된 클립에 속합니다.</div>
+      </div>
+    </section>
+
+    <!-- ============ 챕터 ============ -->
+    <section class="tab" data-tab="chapters">
+      <div class="panel">
+        <h3>챕터 마커 <span class="muted small" id="chSummary"></span></h3>
+        <div class="row">
+          <button id="chAddBtn" class="primary">🔖 현재 위치에 챕터 추가 <kbd>M</kbd></button>
+          <span class="spacer"></span>
+          <button id="chClear" class="danger small">모두 삭제</button>
+        </div>
+        <div id="chList" class="ch-list"></div>
+        <h3 style="margin-top:12px">YouTube 설명란용 타임스탬프 <span class="muted small">(편집 결과 기준)</span></h3>
+        <textarea id="chText" class="ch-text" readonly rows="6" placeholder="챕터를 추가하면 여기에 생성됩니다."></textarea>
+        <div class="row">
+          <button id="chCopy" class="small">복사</button>
+          <span class="muted small">삭제한 클립 안의 챕터는 다음 남은 구간 시작으로 옮겨지고, 00:00 이 없으면 자동으로 추가됩니다.</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ 내보내기 ============ -->
+    <section class="tab" data-tab="export">
+      <div class="panel">
+        <h3>내보내기 <span class="muted small">남은 클립만 저장</span></h3>
+        <label class="block">파일 이름 <input type="text" id="outName" placeholder="(비우면 원본이름_edited)"></label>
+        <label class="radio"><input type="radio" name="expMode" value="copy" checked> <b>빠른 무손실</b><br>
+          <span class="muted small">재인코딩 없이 스트림 복사. 수 초~수십 초. 각 조각의 시작점이 바로 앞 키프레임으로 당겨질 수 있음(보통 수 초 이내).</span></label>
+        <label class="radio"><input type="radio" name="expMode" value="encode"> <b>정밀 (재인코딩)</b><br>
+          <span class="muted small">프레임 단위로 정확하게 자름. 결과는 H.264 MP4. 영상 길이에 비례해 느림.</span></label>
+        <div class="row hidden" id="encodeOpts">
+          <label>품질 CRF <input type="number" id="crf" value="23" min="14" max="35" title="낮을수록 고화질·큰 파일 (18~28 권장)"></label>
+          <label>속도
+            <select id="preset">
+              <option value="ultrafast">ultrafast</option><option value="veryfast" selected>veryfast</option>
+              <option value="fast">fast</option><option value="medium">medium</option>
+            </select>
+          </label>
+        </div>
+        <div class="opts">
+          <label class="check"><input type="checkbox" id="optLoudnorm"> <b>음량 정규화</b> <span class="muted small">방송 표준 -16 LUFS 로 균일화 (오디오만 재인코딩, 영상은 그대로)</span></label>
+          <label class="check"><input type="checkbox" id="optSrt" checked> <b>자막 SRT 파일 함께 저장</b> <span class="muted small" id="optSrtNote">편집 결과에 맞춰 시간 재계산</span></label>
+          <label class="check sub"><input type="checkbox" id="optEmbedSrt"> 영상 파일 안에 자막 트랙 포함 <span class="muted small">(MP4/MKV)</span></label>
+          <label class="check"><input type="checkbox" id="optChapters" checked> <b>챕터를 영상 파일에 포함</b> <span class="muted small" id="optChNote"></span></label>
+        </div>
+        <div class="row">
+          <button id="exportBtn" class="primary">내보내기</button>
+          <button id="cancelExport" class="hidden">취소</button>
+        </div>
+        <div class="progress hidden" id="exportProgress"><div class="bar"></div><span class="label"></span></div>
+        <div id="exportResult" class="small"></div>
+      </div>
+
+      <div class="panel">
+        <h3>출력 파일 <span class="muted small">output/</span></h3>
+        <div id="outputs" class="outputs muted">없음</div>
+      </div>
+    </section>
+
+    <div class="panel shortcuts muted small">
+      <b>단축키</b> Space 재생/정지 · S 자르기 · C/V 도구 · Delete 삭제 · R 복원 · M 챕터 · Ctrl+Z 되돌리기 · ← → 1프레임 · Shift 1초 · Ctrl 10초 · Esc 선택 해제
+    </div>
+  </aside>
+</main>
+<script src="/static/app.js"></script>
+</body>
+</html>
